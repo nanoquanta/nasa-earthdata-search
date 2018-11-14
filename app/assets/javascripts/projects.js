@@ -28,3 +28,4 @@
 //= require bootstrap/bootstrap
 //= require jquery.echoforms-full.min
 //= require modules/echoformsext.coffee.erb
+//= require components
