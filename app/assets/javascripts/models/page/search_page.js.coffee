@@ -47,6 +47,7 @@ ns.SearchPage = do (ko
   $(document).ready ->
     current.map = map = new window.edsc.map.Map(document.getElementById('map'), 'geo')
     current.ui.granuleTimeline = new GranuleTimelineModel(current.ui.collectionsList, current.ui.projectList)
+
     $('.master-overlay').masterOverlay()
     $('.launch-variable-modal').click ->
       $('#variablesModal').modal('show')

@@ -105,7 +105,7 @@ ns.Project = do (ko,
       @serviceOptions.dispose()
 
     _computeIsLoadingComplete: ->
-      return true if !@loadingServiceType() && @granuleAccessOptions() && @collection.total_size() && @collection.unit()
+      return true if !@loadingServiceType() && @collection.total_size() && @collection.unit()
       false
 
     _loadGranuleAccessOptions: ->
@@ -130,7 +130,7 @@ ns.Project = do (ko,
 
       dataSource.loadAccessOptions(success, retry)
 
-    # Based on the fact that we are only supporting two UMM Service types we
+    # Based on the fact that we are only supporting three UMM Service types we
     # can infer which accessMethod the user *should* be choosing for a particular
     # collection, here we are setting that accessMethod for use within the
     # customization modals

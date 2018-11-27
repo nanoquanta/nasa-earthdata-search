@@ -1,14 +1,14 @@
 ns = @edsc.map.L
 
-ns.GranuleLayer = do (L
-                      $ = jQuery
-                      GibsTileLayer = ns.GibsTileLayer
-                      projectPath=ns.interpolation.projectPath
-                      dividePolygon = @edsc.map.geoutil.dividePolygon
-                      capitalize = @edsc.util.string.capitalize
-                      arrayUtil = @edsc.util.array
-                      config = @edsc.config
-                      ) ->
+ns.GranuleGridLayer = do (
+  L
+  arrayUtil = @edsc.util.array
+  capitalize = @edsc.util.string.capitalize
+  config = @edsc.config
+  dividePolygon = @edsc.map.geoutil.dividePolygon
+  gibsUrl = @edsc.config.gibsUrl
+  projectPath=ns.interpolation.projectPath
+) ->
 
   MAX_RETRIES = 1 # Maximum number of times to attempt to reload an image
 
@@ -35,116 +35,73 @@ ns.GranuleLayer = do (L
       ctx.arc(x, y, 10, 0, 2 * Math.PI, isCounterclockwise ? true);
     null
 
-  # The first few methods are ported from L.TileLayer.Canvas, which is in our leaflet version but
-  # seems to be removed from more recent versions.
-  GranuleCanvasLayer = L.TileLayer.extend
-    options:
-      async: true
+  class GranuleGridLayer extends L.GridLayer
+    initialize: (@collection, color, @multiOptions) ->
+      if @collection.granuleDatasource()
+        @granules = @collection.granuleDatasource().data()
+      else
+        @_datasourceSubscription = @collection.granuleDatasource.subscribe(@_subscribe)
 
-    initialize: (url, options, @multiOptions) ->
-      L.TileLayer.prototype.initialize.call(this, url, options)
-      @originalOptions = @options
+      @color = color ? '#25c85b';
+      @originalOptions = tileSize: 512
+      super(@originalOptions)
 
-    setResults: (results) ->
-      @_results = results
-      @redraw()
+    onAdd: (map) ->
+      super()
 
-    redraw: ->
-      if @_map
-        @_reset(hard: true)
-        @_update()
-        @_redrawTile(tile) for tile in @_tiles
+      @_container.setAttribute('id', "granule-vis-#{@collection.id}")
+      @_handle(map, 'on', 'edsc.focuscollection')
+      @setFocus(map.focusedCollection?.id == @collection.id)
 
-      this
+      @_resultsSubscription = @granules?.results?.subscribe(@_loadResults.bind(this))
+      @_loadResults(@granules?.results())
+      @_added = true
 
-    _redrawTile: (tile) ->
-      tilePoint = tile._tilePoint
-      @drawTile(tile, @_getBackTile(tilePoint), tilePoint, @_map._zoom)
+    onRemove: (map) ->
+      super(map)
+      @_added = false
+
+      @setFocus(false, map)
+      @_handle(map, 'off', 'edsc.focuscollection')
+      @_resultsSubscription?.dispose()
+      @_results = null
+
+    _subscribe: ->
+      console.warn 'sub', @collection.granuleDatasource()
+      if @collection.granuleDatasource() && @_added && !@_resultsSubscription
+        granuleDatasource = @collection.granuleDatasource()
+        @granules = granuleDatasource.data()
+        @_resultsSubscription = @granules?.results?.subscribe(@_loadResults.bind(this))
+        @_loadResults(@granules?.results())
+        @_datasourceSubscription?.dispose()
+
+    createTile: (tilePoint) ->
+      tile = @_createTile()
+
+      # # force the map _zoom to the new value before we calculate
+      # # where things need to be drawn
+      # # This was to fix the granules being drawn incorrectly after a zoom, but
+      # # it isn't needed if we turn zoomAnimation off for the map
+      # @_map._zoom = tilePoint.z
+      @drawTile(tile, @_getBackTile(tilePoint), tilePoint)
+
+      tile
 
     _createTile: ->
       tile = L.DomUtil.create('canvas', 'leaflet-tile')
-      tile.width = tile.height = @_getTileSize()
+
+      size = @getTileSize()
+      tile.width = size.x
+      tile.height = size.y
+      ctx = tile.getContext('2d')
       tile.onselectstart = tile.onmousemove = L.Util.falseFn
       tile
-
-    _reset: (e) ->
-      @_backTiles = {}
-      tilesToLoad = @_tilesToLoad
-      L.TileLayer.prototype._reset.call(this, e)
-      @fire('load') if @_tilesToLoad > 0
 
     _getBackTile: (tilePoint) ->
       key = "#{tilePoint.x}:#{tilePoint.y}"
       @_backTiles ?= {}
       @_backTiles[key] ?= @_createTile()
       @_backTiles[key]
-
-    _loadTile: (tile, tilePoint) ->
-      tile._layer = this
-
-      # This line isn't in the leaflet source, which is seemingly a bug
-      @_adjustTilePoint(tilePoint)
-
-      tile._tilePoint = tilePoint
-
-      @_redrawTile(tile)
-
-      @tileDrawn() unless @options.async
-
-    _addIntersections: (result, paths, bounds, type, interpolation) ->
-      return null unless paths?
-
-      for path in paths
-        shapeBounds = L.latLngBounds(path)
-        if shapeBounds.intersects(bounds)
-          intersection = {}
-          intersection[type] = projectPath(@_map, path, [], interpolation, 2, 5).boundary
-          result.push(intersection)
-      null
-
-    _granulePathsOverlappingTile: (granule, tileBounds) ->
-      result = []
-      map = @_map
-      intersects = @_intersects
-      interpolation = if granule.isCartesian() then 'cartesian' else 'geodetic'
-      for polygon in granule.getPolygons() ? []
-        if granule.isCartesian()
-          @_addIntersections(result, polygon, tileBounds, 'poly', interpolation)
-        else
-          # Handle holes
-          polygon = [polygon] unless Array.isArray(polygon[0])
-          for shape in polygon
-            interiors = dividePolygon(shape).interiors
-            @_addIntersections(result, interiors, tileBounds, 'poly', interpolation)
-        # Workaround for EDSC-657
-        # Avoid spamming the map with a large number of barely intersecting orbits by only
-        # drawing the first orbit. Hovering will continue to draw the full orbit.
-        break if granule.orbit
-
-      @_addIntersections(result, granule.getRectangles(), tileBounds, 'poly', 'cartesian')
-      @_addIntersections(result, granule.getLines(), tileBounds, 'line', interpolation)
-
-      for point in granule.getPoints() ? [] when tileBounds.contains(point)
-        result.push({point: @_map.latLngToLayerPoint(point)})
-
-      result
-
-    granuleAt: (p) ->
-      origin = @_map.getPixelOrigin()
-      tileSize = @_getTileSize()
-      tilePoint = p.add(origin).divideBy(tileSize).floor()
-      canvas = @_getBackTile(tilePoint)
-
-      tilePixel = p.subtract(@_getTilePos(tilePoint))
-
-      result = null
-      ctx = canvas.getContext('2d')
-      data = ctx.getImageData(tilePixel.x, tilePixel.y, 1, 1).data
-      if data[3] == 255
-        index = (data[0] << 16) + (data[1] << 8) + data[2]
-        result = @_results?[index]
-
-      result
 
     _matches: (granule, matcher) ->
       operators = ['>=', '<=']
@@ -163,9 +120,32 @@ ns.GranuleLayer = do (L
         return false if !op && value != granuleValue
       true
 
+    _getlprojection: ->
+      if @options.geo
+        'epsg4326'
+      else if @options.arctic
+        'epsg3031'
+      else if @options.antarctic
+        'epsg3413'
+
+    _getTileUrl: (coords) ->
+      data =
+        lprojection: @_getlprojection()
+        x: coords.x
+        y: coords.y
+        z: coords.z
+        time: @options.time
+      if @_map and !@_map.options.crs.infinite
+        invertedY = @_globalTileRange.max.y - (coords.y)
+        if @options.tms
+          data['y'] = invertedY
+        data['-y'] = invertedY
+      L.Util.template @_url, L.Util.extend(data, @options)
+
     getTileUrl: (tilePoint, granule) ->
       return null unless @multiOptions
       date = granule.time_start?.substring(0, 10)
+
       matched = false
       for optionSet in @multiOptions when @_matches(granule, optionSet.match)
         oldResolution = optionSet.resolution
@@ -190,32 +170,29 @@ ns.GranuleLayer = do (L
 
       return unless matched
 
+      @options.time = date
       if @options.granule
         this._originalUrl = this._originalUrl || this._url;
         this._url = config.gibsGranuleUrl || this._originalUrl;
-        date = granule.time_start
-        @options.time_start = granule.time_start.replace(/\.\d{3}Z$/, 'Z')
-        L.TileLayer.prototype.getTileUrl.call(this, tilePoint)
+        @options.time = granule.time_start.replace(/\.\d{3}Z$/, 'Z')
       else
-        this._url = this._originalUrl || this._url;
-        gibsUrl = L.TileLayer.prototype.getTileUrl.call(this, tilePoint)
-        # Test configuration will not have the '//' substring
-        return gibsUrl if gibsUrl.lastIndexOf('//') == -1
-        pos = gibsUrl.lastIndexOf('//');
-        gibsUrl.substring(0,pos) + '/' + date + gibsUrl.substring(pos+1)
+        this._url = this._originalUrl || this._url || gibsUrl;
+
+      @_getTileUrl(tilePoint)
 
     drawTile: (canvas, back, tilePoint) ->
       return unless @_results? && @_results.length > 0
 
-      layerPointToLatLng = @_map.layerPointToLatLng.bind(@_map)
-      tileSize = @_getTileSize()
-      nwPoint = @_getTilePos(tilePoint)
-      nePoint = nwPoint.add([tileSize, 0])
-      sePoint = nwPoint.add([tileSize, tileSize])
-      swPoint = nwPoint.add([0, tileSize])
+      tileSize = @getTileSize()
+
+      bounds = @_tileCoordsToBounds(tilePoint)
+      nwPoint = @_map.latLngToLayerPoint(bounds.getNorthWest())
+
+      nePoint = nwPoint.add([tileSize.x, 0])
+      sePoint = nwPoint.add([tileSize.x, tileSize.y])
+      swPoint = nwPoint.add([0, tileSize.y])
       boundary = {poly: [nwPoint, nePoint, sePoint, swPoint]}
       boundary.poly.reverse() unless isClockwise(boundary.poly)
-      bounds = new L.latLngBounds(boundary.poly.map(layerPointToLatLng))
       bounds = bounds.pad(0.1)
       date = null
       paths = []
@@ -235,16 +212,8 @@ ns.GranuleLayer = do (L
           pathsWithHoles.push(overlaps)
           paths = paths.concat(overlaps)
 
-      # Marks the tile as drawn.  As a callback to _drawClippedPaths, the user
-      # gets faster feedback.  As a callback to _drawClippedImagery, the feedback
-      # is slower but the total CPU work and stutter is reduced.  Right now it's
-      # using the former, but if performance is ever a problem, step 1 is to switch
-      # to the latter
-      imageryCallback = =>
-        @tileDrawn(canvas)
-
       setTimeout((=> @_drawOutlines(canvas, paths, nwPoint)), 0)
-      setTimeout((=> @_drawClippedPaths(canvas, boundary, pathsWithHoles, nwPoint, imageryCallback)), 0)
+      setTimeout((=> @_drawClippedPaths(canvas, boundary, pathsWithHoles, nwPoint)), 0)
       setTimeout((=> @_drawClippedImagery(canvas, boundary, paths, nwPoint, tilePoint)), 0)
       setTimeout((=> @_drawFullBackTile(back, boundary, pathsWithHoles.concat().reverse(), nwPoint)), 0)
 
@@ -266,11 +235,11 @@ ns.GranuleLayer = do (L
       ctx.restore()
       null
 
-    _drawClippedPaths: (canvas, boundary, pathsWithHoles, nwPoint, callback) ->
+    _drawClippedPaths: (canvas, boundary, pathsWithHoles, nwPoint) ->
       ctx = canvas.getContext('2d')
       ctx.save()
       ctx.translate(-nwPoint.x, -nwPoint.y)
-      ctx.strokeStyle = @options.color
+      ctx.strokeStyle = @color
 
       for pathWithHoles in pathsWithHoles
         [path, holes...] = pathWithHoles
@@ -283,7 +252,6 @@ ns.GranuleLayer = do (L
         addPath(ctx, boundary)
         ctx.clip() unless path.line?.length > 0
       ctx.restore()
-      callback?()
       null
 
     _loadImage: (url, callback, retries=0) ->
@@ -325,11 +293,7 @@ ns.GranuleLayer = do (L
         ctx.clip()
       null
 
-    _drawClippedImagery: (canvas, boundary, paths, nwPoint, tilePoint, callback) ->
-      if !@_url? || paths.length == 0
-        callback?()
-        return
-
+    _drawClippedImagery: (canvas, boundary, paths, nwPoint, tilePoint) ->
       ctx = canvas.getContext('2d')
       ctx.save()
       ctx.translate(-nwPoint.x, -nwPoint.y)
@@ -368,7 +332,6 @@ ns.GranuleLayer = do (L
               index++
             if index == pathsByUrl.length
               ctx.restore()
-              callback?()
       null
 
 
@@ -393,53 +356,85 @@ ns.GranuleLayer = do (L
       ctx.restore()
       null
 
-    tileDrawn: (tile) ->
-      # If we do upgrade, this will break, as well as our tile reloading calls.
-      # Tile loading seems to be handled via callbacks now.
-      @_tileOnLoad.call(tile)
+    _addIntersections: (result, paths, bounds, type, interpolation) ->
+      return null unless paths?
 
-  class GranuleLayer extends GibsTileLayer
-    constructor: (@collection, color, @multiOptions) ->
+      for path in paths
+        shapeBounds = L.latLngBounds(path)
+        if shapeBounds.intersects(bounds)
+          intersection = {}
+          intersection[type] = projectPath(@_map, path, interpolation, 2, 5)
+          result.push(intersection)
+      null
 
-      if @collection.granuleDatasource()
-        @granules = @collection.granuleDatasource().data()
+    _granulePathsOverlappingTile: (granule, tileBounds) ->
+      result = []
+      map = @_map
+
+      intersects = @_intersects
+      interpolation = if granule.isCartesian() then 'cartesian' else 'geodetic'
+      for polygon in granule.getPolygons() ? []
+        if granule.isCartesian()
+          @_addIntersections(result, polygon, tileBounds, 'poly', interpolation)
+        else
+          # Handle holes
+          polygon = [polygon] unless Array.isArray(polygon[0])
+          for shape in polygon
+            interiors = dividePolygon(shape).interiors
+            @_addIntersections(result, interiors, tileBounds, 'poly', interpolation)
+        # Workaround for EDSC-657
+        # Avoid spamming the map with a large number of barely intersecting orbits by only
+        # drawing the first orbit. Hovering will continue to draw the full orbit.
+        break if granule.orbit
+
+      @_addIntersections(result, granule.getRectangles(), tileBounds, 'poly', 'cartesian')
+      @_addIntersections(result, granule.getLines(), tileBounds, 'line', interpolation)
+
+      for point in granule.getPoints() ? [] when tileBounds.contains(point)
+        result.push({point: @_map.latLngToLayerPoint(point)})
+
+      result
+
+    granuleAt: (p) ->
+      origin = @_map.getPixelOrigin()
+      tileSize = @getTileSize()
+      tilePoint = p.add(origin).divideBy(tileSize.x).floor()
+      canvas = @_getBackTile(tilePoint)
+      bounds = @_tileCoordsToBounds(tilePoint)
+
+      tilePixel = p.subtract(@_map.latLngToLayerPoint(bounds.getNorthWest()))
+
+      result = null
+      ctx = canvas.getContext('2d')
+      data = ctx.getImageData(tilePixel.x, tilePixel.y, 1, 1).data
+      if data[3] == 255
+        index = (data[0] << 16) + (data[1] << 8) + data[2]
+        result = @_results?[index]
+
+      result
+
+    setResults: (results) ->
+      @_results = results
+      @redraw()
+
+    _reorderedResults: (results, defaultResults) ->
+      if @_stickied?
+        results = results.concat()
+        index = results.indexOf(@_stickied)
+        if index == -1
+          @_stickied = null
+          @stickyId = null
+          @_granuleStickyLayer?.onRemove(@_map)
+          @_granuleStickyLayer = null
+        else
+          results.splice(index, 1)
+          results.unshift(@_stickied)
+        results
       else
-        @_datasourceSubscription = @collection.granuleDatasource.subscribe(@_subscribe)
-      @_hasGibs = @multiOptions?.length > 0
-      @color = color ? '#25c85b';
-      super({})
+        defaultResults
 
-    onAdd: (map) ->
-      super(map)
-
-      @layer._container.setAttribute('id', "granule-vis-#{@collection.id}")
-      @_handle(map, 'on', 'edsc.focuscollection')
-      @setFocus(map.focusedCollection?.id == @collection.id)
-
-      @_resultsSubscription = @granules?.results?.subscribe(@_loadResults.bind(this))
-      @_loadResults(@granules?.results())
-      @_added = true
-
-    onRemove: (map) ->
-      super(map)
-      @_added = false
-
-      @setFocus(false, map)
-      @_handle(map, 'off', 'edsc.focuscollection')
-      @_resultsSubscription?.dispose()
-      @_results = null
-
-    _subscribe: ->
-      console.warn 'sub', @collection.granuleDatasource()
-      if @collection.granuleDatasource() && @_added && !@_resultsSubscription
-        granuleDatasource = @collection.granuleDatasource()
-        @granules = granuleDatasource.data()
-        @_resultsSubscription = @granules?.results?.subscribe(@_loadResults.bind(this))
-        @_loadResults(@granules?.results())
-        @_datasourceSubscription?.dispose()
-
-    url: ->
-      super() if @_hasGibs
+    _loadResults: (results) ->
+      @setResults(@_reorderedResults(results, @granules?.results()))
 
     setFocus: (focus, map=@_map) ->
       return if @_isFocused == focus
@@ -467,7 +462,7 @@ ns.GranuleLayer = do (L
         @_map.fire('edsc.focusgranule', granule: null)
 
     _onEdscMousemove: (e) =>
-      granule = @layer?.granuleAt(e.layerPoint)
+      granule = @granuleAt(e.layerPoint)
       if @_granule != granule
         @_map.fire('edsc.focusgranule', granule: granule)
 
@@ -475,7 +470,7 @@ ns.GranuleLayer = do (L
       if $(e.originalEvent.target).closest('a').hasClass('panel-list-remove')
         return @_map.fire('edsc.excludestickygranule')
       return unless $(e.originalEvent.target).closest('a').length == 0
-      granule = @layer?.granuleAt(e.layerPoint)
+      granule = @granuleAt(e.layerPoint)
       granule = null if @_stickied == granule
       @_map.fire('edsc.focusgranule', granule: granule)
       @_map.fire('edsc.stickygranule', granule: granule)
@@ -493,59 +488,20 @@ ns.GranuleLayer = do (L
       return if @_stickied == granule
 
       @_stickied = granule
-      @layer?.stickyId = granule?.id # Ugly hack for testing
+      @stickyId = granule?.id # Ugly hack for testing
 
       @_granuleStickyLayer?.onRemove(@_map)
       @_granuleStickyLayer = @_stickyLayer(granule, true)
       if @_granuleStickyLayer?
         @_granuleStickyLayer.onAdd(@_map)
 
-        if @layer.options.endpoint == 'geo' && @_granuleFocusLayer?
+        if @_map.projection == 'geo' && @_granuleFocusLayer?
           bounds = @_granuleFocusLayer.getBounds()
           # Avoid zooming and panning tiny amounts
           if bounds?.isValid() && !@_map.getBounds().contains(bounds)
-            console.warn 'bounds', bounds
             @_map.fitBounds(bounds.pad(0.2)).panTo(bounds.getCenter())
 
       @_loadResults(@_results)
-
-    _buildLayerWithOptions: (newOptions) ->
-      # GranuleCanvasLayer needs to handle time
-      newOptions = L.extend({}, newOptions)
-      delete newOptions.time
-
-      url = @url()
-
-      layer = new GranuleCanvasLayer(url, L.extend(@_toTileLayerOptions(newOptions), color: @color), @multiOptions)
-
-      # For tests to figure out if things are still loading
-      map = @_map
-      map.loadingLayers ?= 0
-      layer.on 'loading', -> map.loadingLayers++
-      layer.on 'load', -> map.loadingLayers--
-
-      layer.setResults(@_reorderedResults(@_results))
-      layer.stickyId = @_stickied?.id # Ugly hack for testing
-      layer
-
-    _reorderedResults: (results) ->
-      if @_stickied?
-        results = results.concat()
-        index = results.indexOf(@_stickied)
-        if index == -1
-          @_stickied = null
-          @layer?.stickyId = null
-          @_granuleStickyLayer?.onRemove(@_map)
-          @_granuleStickyLayer = null
-        else
-          results.splice(index, 1)
-          results.unshift(@_stickied)
-
-      results
-
-    _loadResults: (results) ->
-      @_results = results
-      @layer?.setResults(@_reorderedResults(results))
 
     _granuleLayer: (granule, options) ->
       granule.buildLayer(options)
@@ -572,31 +528,22 @@ ns.GranuleLayer = do (L
       excludeHtml = ''
       if @collection.granuleDatasource()?.hasCapability('excludeGranules')
         excludeHtml = '<a class="panel-list-remove" href="#" title="Remove granule"><span class="fa-stack"><i class="fa fa-circle fa-stack-2x"></i><i class="fa fa-times fa-stack-1x fa-inverse"></i></span></a>'
-      icon = L.divIcon
+      icon = new L.divIcon
         className: 'granule-spatial-label',
         html: "<span class=\"granule-spatial-label-temporal\">#{temporalLabel}</span>#{excludeHtml}"
 
 
       marker = L.marker([0, 0], clickable: false, icon: icon)
+      layer.addLayer(marker)
 
       firstShape = layer.getLayers()[0]
       firstShape = firstShape._interiors if firstShape?._interiors?
 
       firstShape?.on 'add', (e) ->
         map = @_map
-
-        center = @getLatLng?()
-        unless center?
-          latlngs = @getLatLngs()
-          latlngs = latlngs[0] if Array.isArray(latlngs[0])
-          bounds = L.bounds(map.latLngToLayerPoint(latlng) for latlng in latlngs)
-          center = map.layerPointToLatLng(bounds.getCenter())
-
+        center = if @getLatLng? then @getLatLng() else @getCenter()
         marker.setLatLng(center)
-        layer.addLayer(marker)
 
       layer
 
-
-
-  exports = GranuleLayer
+  exports = GranuleGridLayer

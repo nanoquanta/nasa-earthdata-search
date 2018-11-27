@@ -47,6 +47,7 @@ ns.SpatialSelection = do (window,
             drawError: errorOptions
             shapeOptions: colorOptions
           polyline: false
+          circlemarker: false
           circle: false
         edit:
           selectedPathOptions:
@@ -59,7 +60,7 @@ ns.SpatialSelection = do (window,
       drawControl.addTo(map) if !@isMinimap
 
       spatialModel = currentPage.query.spatial
-      
+
       @_querySubscription = spatialModel.subscribe(@_onSpatialChange)
       @_spatialErrorSubscription = currentPage.spatialError.subscribe(@_onSpatialErrorChange)
       @_onSpatialChange(spatialModel())
@@ -255,13 +256,13 @@ ns.SpatialSelection = do (window,
 
     _renderPolygon: (shape) ->
       options = L.extend({}, L.Draw.Polygon.prototype.options.shapeOptions, @_colorOptions)
-      poly = @_layer = new L.SphericalPolygon(shape, options)
+      poly = @_layer = new L.sphericalPolygon(shape, options)
       poly.type = 'polygon'
       @_drawnItems.addLayer(poly)
 
     _renderPolarRectangle: (shape, proj, type) ->
       options = L.extend({}, L.Draw.Polygon.prototype.options.shapeOptions, @_colorOptions)
-      poly = @_layer = new L.PolarRectangle(shape, options, proj)
+      poly = @_layer = new L.polarRectangle(shape, options, proj)
       poly.type = type
       @_drawnItems.addLayer(poly)
 
@@ -270,11 +271,11 @@ ns.SpatialSelection = do (window,
       type = 'bounding_box' if type == 'rectangle'
 
       shape = switch type
-        when 'point'     then [layer.getLatLng()]
-        when 'bounding_box' then [layer.getLatLngs()[0], layer.getLatLngs()[2]]
-        when 'polygon'   then layer.getLatLngs()
-        when 'arctic-rectangle'   then layer.getLatLngs()
-        when 'antarctic-rectangle'   then layer.getLatLngs()
+        when 'point' then [layer.getLatLng()]
+        when 'bounding_box' then [layer.getLatLngs()[0][0], layer.getLatLngs()[0][2]]
+        when 'polygon' then layer.getLatLngs()
+        when 'arctic-rectangle' then layer.getLatLngs()
+        when 'antarctic-rectangle' then layer.getLatLngs()
         else console.error("Unrecognized shape: #{type}")
 
       shapePoints = ("#{p.lng},#{p.lat}" for p in shape)
@@ -298,10 +299,10 @@ ns.SpatialSelection = do (window,
         @map.fitBounds(shape)
 
       switch type
-        when 'point'     then @_renderMarker(shape)
+        when 'point' then @_renderMarker(shape)
         when 'bounding_box' then @_renderRectangle(shape)
-        when 'polygon'   then @_renderPolygon(shape)
-        when 'arctic-rectangle'   then @_renderPolarRectangle(shape, Proj.epsg3413.projection, type)
-        when 'antarctic-rectangle'   then @_renderPolarRectangle(shape, Proj.epsg3031.projection, type)
+        when 'polygon' then @_renderPolygon(shape)
+        when 'arctic-rectangle' then @_renderPolarRectangle(shape, Proj.epsg3413.projection, type)
+        when 'antarctic-rectangle' then @_renderPolarRectangle(shape, Proj.epsg3031.projection, type)
         else console.error("Cannot render spatial type #{type}")
   exports = SpatialSelection

@@ -18,21 +18,24 @@ gem 'obfuscate_id', git: 'https://github.com/namick/obfuscate_id.git', ref: 'a89
 gem 'atomic'
 gem 'rack-rewrite'
 
+gem 'pg'
+
 group :test do
   gem 'database_cleaner'
   gem 'factory_girl'
   gem 'factory_girl_rails'
   gem 'capybara'
-  gem 'capybara-webkit'
   gem 'selenium-webdriver'
   gem 'chromedriver-helper'
   gem 'capybara-screenshot'
   gem 'rspec_junit_formatter'
   gem 'rack_session_access'
+  gem 'sqlite3'
 end
 
 group :development do
   gem 'guard-livereload', require: false
+  gem 'guard-coffeescript'
   gem 'quiet_assets'
 
   # For dumping additional metadata stored in DatasetExtras and similar
@@ -41,25 +44,20 @@ group :development do
 end
 
 group :sit, :uat, :production, :lab do
-  gem 'pg'
   gem 'rails_12factor'
 end
 
 # Gems that are mostly used for testing but useful to have available via CLI
 group :development, :test do
-  gem 'thin'
-  gem 'rspec-rails'
+  gem 'byebug'
   gem 'colored'
-  gem 'vcr'
-  gem 'sqlite3'
-  gem 'knapsack'
-
   gem 'jasmine'
   gem 'jasmine_junitxml_formatter'
-
+  gem 'knapsack'
+  gem 'rspec-rails'
   gem 'therubyracer', :require => 'v8'
-
-  gem 'byebug'
+  gem 'thin'
+  gem 'vcr'
 end
 
 group :assets, :development, :test do

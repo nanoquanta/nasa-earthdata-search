@@ -9,9 +9,10 @@ module Helpers
     end
 
     def wait_for_zoom_animation(zoom_to)
-      script = "(function() {var map = $('#map').data('map').map; return map.getZoom();})();"
+      script = "return $('#map').data('map').map.getZoom();"
+
       synchronize do
-        expect(page.evaluate_script(script).to_i).to eql(zoom_to)
+        expect(page.execute_script(script).to_i).to eql(zoom_to)
       end
     end
 
@@ -65,7 +66,6 @@ module Helpers
     end
 
     def logout
-      page.set_rack_session(nil)
       visit '/logout'
     end
 
