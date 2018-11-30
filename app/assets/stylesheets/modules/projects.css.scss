@@ -2,6 +2,10 @@
 $card-background: rgba(235,235,235,1);
 
 .project {
+  .master-overlay-main {
+    height: 0px;
+  }
+
   .map-placeholder {
     background: grey;
   }
