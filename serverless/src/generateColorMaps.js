@@ -71,16 +71,12 @@ const getProjectionCapabilities = async (projection) => {
           }
 
           try {
-            sqs.sendMessage({
+            const sqsResponse = sqs.sendMessage({
               QueueUrl: process.env.colorMapQueueUrl,
               MessageBody: JSON.stringify(knownColorMap)
-            }, (error) => {
-              if (error) {
-                console.log(error)
-              } else {
-                colormapUrls.push(knownColorMap)
-              }
-            })
+            }).promise()
+
+            console.log(sqsResponse)
           } catch (e) {
             console.log(e)
           }

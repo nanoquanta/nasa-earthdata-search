@@ -45,7 +45,7 @@ export default async function processColorMap(event, context) {
 
     console.log('body', body)
 
-    const providedColorMap = JSON.parse(body)[0]
+    const providedColorMap = JSON.parse(body)
 
     console.log('providedColorMap', providedColorMap)
 

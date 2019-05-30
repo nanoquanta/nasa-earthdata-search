@@ -41,7 +41,7 @@ export const prepareCollectionParams = (state) => {
 
   const tagKey = []
   if (featureFacets.customizable) tagKey.push('edsc.extra.subset_service.*')
-  if (featureFacets.mapImagery) tagKey.push('edsc.extra.gibs')
+  if (featureFacets.mapImagery) tagKey.push('edsc.extra.serverless.gibs')
 
   return {
     authToken,
